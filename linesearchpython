@@ -1,0 +1,193 @@
+from typing import List, Any
+import time
+import numpy as np
+from numba import jit
+
+def linear_search_basic(arr: List[Any], target: Any) -> int:
+    """Базовая версия с аннотациями типов"""
+    for i in range(len(arr)):
+        if arr[i] == target:
+            return i
+    return -1
+
+def linear_search_optimized(arr: List[Any], target: Any) -> int:
+    """
+    Оптимизированная версия:
+    - Использует локальные переменные
+    - Уменьшает количество обращений к атрибутам
+    """
+    n = len(arr)
+    for i in range(n):
+        if arr[i] == target:
+            return i
+    return -1
+
+def linear_search_enumerate(arr: List[Any], target: Any) -> int:
+    """Версия с enumerate для читаемости"""
+    for i, item in enumerate(arr):
+        if item == target:
+            return i
+    return -1
+
+@jit(nopython=True)
+def linear_search_numba(arr, target):
+    """
+    Версия с компиляцией JIT через Numba
+    Работает ТОЛЬКО с числовыми массивами!
+    """
+    for i in range(len(arr)):
+        if arr[i] == target:
+            return i
+    return -1
+
+def linear_search_sentinel(arr: List[Any], target: Any) -> int:
+    """
+    Версия с дозорным элементом (Sentinel)
+    Убирает одну проверку в цикле
+    """
+    n = len(arr)
+    if n == 0:
+        return -1
+    
+    # Сохраняем последний элемент
+    last = arr[n - 1]
+    # Устанавливаем дозорный
+    arr[n - 1] = target
+    
+    i = 0
+    while arr[i] != target:
+        i += 1
+    
+    # Восстанавливаем последний элемент
+    arr[n - 1] = last
+    
+    if i < n - 1 or last == target:
+        return i
+    return -1
+
+def linear_search_numpy(arr: np.ndarray, target: Any) -> int:
+    """
+    Версия для NumPy массивов (очень быстрая для чисел)
+    """
+    result = np.where(arr == target)[0]
+    return result[0] if result.size > 0 else -1
+
+def linear_search_parallel(arr: List[Any], target: Any, chunk_size: int = 1000) -> int:
+    """
+    Параллельный поиск для очень больших массивов
+    """
+    import multiprocessing as mp
+    from concurrent.futures import ThreadPoolExecutor
+    
+    n = len(arr)
+    if n < chunk_size * 2:  # Для маленьких массивов используем обычный поиск
+        return linear_search_optimized(arr, target)
+    
+    def search_chunk(start_idx, chunk):
+        for i, item in enumerate(chunk):
+            if item == target:
+                return start_idx + i
+        return -1
+    
+    # Разбиваем массив на чанки
+    chunks = [(i * chunk_size, arr[i * chunk_size:(i + 1) * chunk_size]) 
+              for i in range((n + chunk_size - 1) // chunk_size)]
+    
+    with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
+        futures = [executor.submit(search_chunk, start, chunk) for start, chunk in chunks]
+        for future in futures:
+            result = future.result()
+            if result != -1:
+                return result
+    
+    return -1
+
+class FastLinearSearch:
+    """Класс для кеширования поисковых операций"""
+    
+    def __init__(self, arr: List[Any]):
+        self.arr = arr
+        self._index_cache = {}  # Кеш для быстрого поиска
+        
+    def search(self, target: Any) -> int:
+        # Проверяем кеш
+        if target in self._index_cache:
+            cached_idx = self._index_cache[target]
+            if cached_idx < len(self.arr) and self.arr[cached_idx] == target:
+                return cached_idx
+        
+        # Выполняем поиск
+        for i in range(len(self.arr)):
+            if self.arr[i] == target:
+                self._index_cache[target] = i  # Сохраняем в кеш
+                return i
+        return -1
+
+def benchmark_search(func, arr, target, func_name, iterations=10000):
+    """Функция для бенчмаркинга производительности"""
+    start_time = time.perf_counter()
+    for _ in range(iterations):
+        result = func(arr, target)
+    end_time = time.perf_counter()
+    
+    print(f"{func_name}: {end_time - start_time:.6f} сек ({iterations} итераций)")
+    return result
+
+def main():
+    # Тестовые данные
+    array = [3, 5, 2, 7, 9, 1, 4] * 100  # Увеличиваем массив для тестов
+    target = 7
+    
+    print("Сравнение производительности различных реализаций:")
+    print("=" * 60)
+    
+    # Бенчмарк разных реализаций
+    result_basic = benchmark_search(linear_search_basic, array, target, "Базовая версия", 10000)
+    result_optimized = benchmark_search(linear_search_optimized, array, target, "Оптимизированная", 10000)
+    result_enumerate = benchmark_search(linear_search_enumerate, array, target, "С enumerate", 10000)
+    result_sentinel = benchmark_search(linear_search_sentinel, array.copy(), target, "С дозорным", 10000)
+    
+    # NumPy версия (только для чисел)
+    np_array = np.array(array)
+    result_numpy = benchmark_search(linear_search_numpy, np_array, target, "NumPy версия", 10000)
+    
+    # Кеширующая версия
+    searcher = FastLinearSearch(array)
+    start_time = time.perf_counter()
+    for _ in range(10000):
+        result_cached = searcher.search(target)
+    end_time = time.perf_counter()
+    print(f"Кеширующая версия: {end_time - start_time:.6f} сек (10000 итераций)")
+    
+    # Параллельная версия для демонстрации
+    large_array = list(range(100000))
+    result_parallel = linear_search_parallel(large_array, 99999)
+    print(f"Параллельный поиск: найден на позиции {result_parallel}")
+    
+    print("\n" + "=" * 60)
+    
+    # Вывод результатов
+    if result_basic != -1:
+        print(f"Элемент {target} найден на позиции: {result_basic}")
+    else:
+        print("Элемент не найден")
+
+def ultra_fast_search():
+    """Самый быстрый вариант для большинства случаев"""
+    array = [3, 5, 2, 7, 9, 1, 4]
+    target = 7
+    
+    # Самый быстрый вариант - оптимизированная версия
+    n = len(array)
+    for i in range(n):
+        if array[i] == target:
+            print(f"Элемент найден на позиции: {i}")
+            return
+    
+    print("Элемент не найден")
+
+if __name__ == "__main__":
+    main()
+    
+    print("\nСамый быстрый вариант:")
+    ultra_fast_search()
